@@ -67,39 +67,54 @@ export interface RenderOpts {
 const isBg = (s: Shape): boolean => s.t !== 'a' && s.fill === 'bg';
 const BIG = 4000;
 
+export interface ShapeGroup {
+  /** метка слоя: его штрихи и маска получают data-layer / data-mask для анимации */
+  id?: string;
+  shapes: Shape[];
+}
+
 /**
- * Фигуры → разметка. Заливка «фоном» реализована маской: всё нарисованное раньше
+ * Группы фигур → разметка. Заливка «фоном» реализована маской: всё нарисованное раньше
  * вырезается под фигурой, поэтому экспорт с прозрачным фоном остаётся честным.
  */
-export function renderShapes(shapes: Shape[], o: RenderOpts): { body: string; defs: string } {
+export function renderGroups(groups: ShapeGroup[], o: RenderOpts): { body: string; defs: string } {
   let body = '';
   let defs = '';
-  let run: Shape[] = [];
   let masks = 0;
   let runs = 0;
-  const flush = (): void => {
-    if (!run.length) return;
-    body += o.mode === 'chalk' ? chalkRun(run, makeRng(`${o.seed}/chalk/${runs}`), o.rough) : cleanRun(run);
-    runs++;
-    run = [];
-  };
 
-  for (let i = 0; i < shapes.length; ) {
-    if (!isBg(shapes[i])) {
-      run.push(shapes[i++]);
-      continue;
+  for (const group of groups) {
+    const { id, shapes } = group;
+    let run: Shape[] = [];
+    const flush = (): void => {
+      if (!run.length) return;
+      const markup = o.mode === 'chalk' ? chalkRun(run, makeRng(`${o.seed}/chalk/${runs}`), o.rough) : cleanRun(run);
+      body += id ? `<g data-layer="${id}">${markup}</g>` : markup;
+      runs++;
+      run = [];
+    };
+
+    for (let i = 0; i < shapes.length; ) {
+      if (!isBg(shapes[i])) {
+        run.push(shapes[i++]);
+        continue;
+      }
+      flush();
+      const batch: Shape[] = [];
+      while (i < shapes.length && isBg(shapes[i])) batch.push(shapes[i++]);
+      const mid = `${o.idp}m${masks++}`;
+      const cut = `<path d="${batch.map(pathOf).join('')}" fill="#000" stroke="none"/>`;
+      defs +=
+        `<mask id="${mid}" maskUnits="userSpaceOnUse" x="${-BIG}" y="${-BIG}" width="${BIG * 2}" height="${BIG * 2}">` +
+        `<rect x="${-BIG}" y="${-BIG}" width="${BIG * 2}" height="${BIG * 2}" fill="#fff" stroke="none"/>` +
+        `${id ? `<g data-mask="${id}">${cut}</g>` : cut}</mask>`;
+      body = `<g mask="url(#${mid})">${body}</g>`;
+      for (const b of batch) run.push({ ...b, fill: 'none' } as Shape);
     }
     flush();
-    const batch: Shape[] = [];
-    while (i < shapes.length && isBg(shapes[i])) batch.push(shapes[i++]);
-    const id = `${o.idp}m${masks++}`;
-    defs +=
-      `<mask id="${id}" maskUnits="userSpaceOnUse" x="${-BIG}" y="${-BIG}" width="${BIG * 2}" height="${BIG * 2}">` +
-      `<rect x="${-BIG}" y="${-BIG}" width="${BIG * 2}" height="${BIG * 2}" fill="#fff" stroke="none"/>` +
-      `<path d="${batch.map(pathOf).join('')}" fill="#000" stroke="none"/></mask>`;
-    body = `<g mask="url(#${id})">${body}</g>`;
-    for (const b of batch) run.push({ ...b, fill: 'none' } as Shape);
   }
-  flush();
   return { body, defs };
 }
+
+export const renderShapes = (shapes: Shape[], o: RenderOpts): { body: string; defs: string } =>
+  renderGroups([{ shapes }], o);

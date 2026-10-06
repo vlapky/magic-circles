@@ -1,8 +1,8 @@
-import { buildCircle } from '../core/build';
+import { buildLayers } from '../core/build';
 import type { CircleConfig, ColorCfg } from '../core/config';
 import { extent } from '../core/ir';
 import { cyrb53 } from '../core/rng';
-import { f, renderShapes } from './svg';
+import { f, renderGroups, renderShapes } from './svg';
 
 export interface DocOpts {
   idp: string;
@@ -90,10 +90,17 @@ export interface CircleParts {
 }
 
 /** Разметка одного круга без обёртки — для превью и для узлов системы. */
-export function circleParts(cfg: CircleConfig, idp: string, o: { weightMul?: number; lite?: boolean } = {}): CircleParts {
-  const shapes = buildCircle(cfg, o.weightMul ?? 1);
+export function circleParts(
+  cfg: CircleConfig,
+  idp: string,
+  o: { weightMul?: number; lite?: boolean; layered?: boolean } = {},
+): CircleParts {
+  const layers = buildLayers(cfg, o.weightMul ?? 1);
+  const shapes = layers.flatMap((l) => l.shapes);
   const chalk = cfg.style.mode === 'chalk';
-  const { body, defs } = renderShapes(shapes, { mode: cfg.style.mode, rough: cfg.style.rough, seed: cfg.seed, idp });
+  const opts = { mode: cfg.style.mode, rough: cfg.style.rough, seed: cfg.seed, idp };
+  // послойная разметка нужна только анимации; обычная сливает штрихи всех слоёв
+  const { body, defs } = o.layered ? renderGroups(layers, opts) : renderShapes(shapes, opts);
   return {
     body: chalk && !o.lite ? `<g filter="url(#${chalkFilterId(idp)})">${body}</g>` : body,
     defs,
@@ -101,11 +108,15 @@ export function circleParts(cfg: CircleConfig, idp: string, o: { weightMul?: num
   };
 }
 
-/** Готовый SVG круга. */
-export function circleSvg(cfg: CircleConfig, idp: string, o: { px?: number; lite?: boolean } = {}): string {
-  const parts = circleParts(cfg, idp, { lite: o.lite });
+/** Готовый SVG круга. zoom > 1 оставляет поле вокруг — запас для пульсации в анимации. */
+export function circleSvg(
+  cfg: CircleConfig,
+  idp: string,
+  o: { px?: number; lite?: boolean; layered?: boolean; zoom?: number } = {},
+): string {
+  const parts = circleParts(cfg, idp, { lite: o.lite, layered: o.layered });
   const pad = o.lite ? 6 : 8 + (cfg.color.glow ? cfg.color.glowRadius * 4 : 0);
-  const half = Math.max(250, Math.ceil(parts.extent + pad));
+  const half = Math.ceil(Math.max(250, parts.extent + pad) * (o.zoom ?? 1));
   return svgDoc({
     idp,
     vb: [-half, -half, half * 2, half * 2],

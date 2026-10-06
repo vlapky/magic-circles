@@ -86,6 +86,7 @@ export interface Session {
   auto?: boolean;
   tab?: string;
   evo?: { strength: number; nonce: string };
+  anim?: unknown;
   open?: string[];
 }
 

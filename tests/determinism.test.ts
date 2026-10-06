@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { BeatDetector, readBands } from '../src/anim/beat';
+import { Motion, motionPlan, tempoBeat, tempoSignals } from '../src/anim/motion';
+import { encodeWav } from '../src/audio/wav';
 import { buildCircle } from '../src/core/build';
 import { defaultConfig, normalizeConfig, randomizeConfig, type Locks } from '../src/core/config';
 import { mutateConfig, rotateHue } from '../src/core/evolve';
@@ -186,5 +189,116 @@ describe('эволюция', () => {
     const back = rotateHue(rotateHue('#3366cc', 90), -90);
     const ch = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
     ch(back).forEach((v, i) => expect(Math.abs(v - ch('#3366cc')[i])).toBeLessThanOrEqual(2));
+  });
+});
+
+describe('анимация', () => {
+  const settings = { rot: 100, pulse: 100, flicker: 100, glow: 100, pattern: 0, still: [] as string[] };
+
+  it('послойная разметка помечает слои и их маски, обычная — нет', () => {
+    const c = defaultConfig();
+    const layered = circleSvg(c, 'a', { layered: true });
+    for (const id of ['outerRing', 'polygram', 'innerRing', 'nodes', 'center']) expect(layered).toContain(`data-layer="${id}"`);
+    expect(layered).toContain('data-mask="innerRing"');
+    expect(layered).toContain('data-mask="nodes"');
+    expect(layered).not.toContain('data-layer="petals"');
+    expect(circleSvg(c, 'a')).not.toContain('data-layer');
+  });
+
+  it('малые круги на вершинах движутся вместе с полиграммой', () => {
+    const c = defaultConfig();
+    const plan = motionPlan(c, 0);
+    expect(plan.nodes?.follow).toBe('polygram');
+    const m = new Motion();
+    let frame = m.step(0.016, tempoSignals(0, 120), settings, plan);
+    for (let i = 1; i < 90; i++) frame = m.step(0.016, tempoSignals(i * 0.016, 120), settings, plan);
+    expect(frame.layers.nodes?.rot).toBe(frame.layers.polygram?.rot);
+    expect(frame.layers.nodes?.scale).toBe(frame.layers.polygram?.scale);
+    expect(frame.layers.polygram?.rot).not.toBe(0);
+    // кольца вращаются навстречу друг другу
+    expect(frame.layers.outerRing!.rot).toBeLessThan(180);
+    expect(frame.layers.innerRing!.rot).toBeGreaterThan(180);
+  });
+
+  it('удар даёт пульс и вспышку, а между ударами они затухают', () => {
+    const plan = motionPlan(defaultConfig(), 0);
+    const on = new Motion().step(0.016, tempoSignals(0, 120), settings, plan);
+    const off = new Motion().step(0.016, tempoSignals(0.45, 120), settings, plan);
+    expect(on.layers.center!.scale).toBeGreaterThan(off.layers.center!.scale);
+    expect(on.glow).toBeGreaterThan(off.glow);
+    expect(off.layers.center!.scale).toBeGreaterThanOrEqual(1);
+  });
+
+  it('остановленный слой и нулевые силы не двигают круг', () => {
+    const plan = motionPlan(defaultConfig(), 0);
+    const still = new Motion().step(0.5, tempoSignals(0, 120), { ...settings, still: ['outerRing'] }, plan);
+    expect(still.layers.outerRing).toEqual({ rot: 0, scale: 1, opacity: 1 });
+    const zero = new Motion().step(0.5, tempoSignals(0, 120), { rot: 0, pulse: 0, flicker: 0, glow: 0, pattern: 0, still: [] }, plan);
+    for (const pose of Object.values(zero.layers)) expect(pose).toEqual({ rot: 0, scale: 1, opacity: 1 });
+    expect(zero.glow).toBe(1);
+  });
+
+  it('рисунок движения воспроизводим и меняется от зерна', () => {
+    const c = defaultConfig();
+    expect(motionPlan(c, 7)).toEqual(motionPlan(c, 7));
+    const differs = [1, 2, 3, 4, 5].some((p) => JSON.stringify(motionPlan(c, p)) !== JSON.stringify(motionPlan(c, 0)));
+    expect(differs).toBe(true);
+  });
+
+  it('свой темп отсчитывает удары', () => {
+    expect(tempoBeat(0, 120)).toBe(0);
+    expect(tempoBeat(0.49, 120)).toBe(0);
+    expect(tempoBeat(0.51, 120)).toBe(1);
+    expect(tempoBeat(60, 100)).toBe(100);
+  });
+
+  it('детектор находит удары в ровном бите и молчит на тишине и ровном гуле', () => {
+    const run = (bass: (t: number) => number): number => {
+      const d = new BeatDetector();
+      let hits = 0;
+      const dt = 1 / 60;
+      for (let i = 0; i < 60 * 10; i++) if (d.update(bass(i * dt), i * dt, dt, 0.5)) hits++;
+      return hits;
+    };
+    // 120 уд/мин: короткий всплеск баса дважды в секунду на фоне тихого гула
+    const kicks = run((t) => 0.15 + 0.7 * Math.exp(-12 * (t * 2 - Math.floor(t * 2))));
+    expect(kicks).toBeGreaterThanOrEqual(18);
+    expect(kicks).toBeLessThanOrEqual(21);
+    expect(run(() => 0)).toBe(0);
+    expect(run(() => 0.6)).toBe(0);
+    // басовая нота между бочками слабее удара и ударом не считается
+    const withBassNotes = run((t) => {
+      const beat = t * 2 - Math.floor(t * 2);
+      const off = beat >= 0.5 ? 0.3 * Math.exp(-10 * (beat - 0.5)) : 0;
+      return 0.15 + 0.7 * Math.exp(-12 * beat) + off;
+    });
+    expect(withBassNotes).toBeGreaterThanOrEqual(18);
+    expect(withBassNotes).toBeLessThanOrEqual(21);
+  });
+
+  it('полосы спектра разделяют бас и верх', () => {
+    const spectrum = new Uint8Array(1024);
+    const binHz = 44100 / 2048;
+    // полоса баса включает бин, накрывающий её верхнюю границу, поэтому заполняем с запасом
+    for (let i = 0; i < spectrum.length; i++) spectrum[i] = i * binHz < 200 ? 255 : 0;
+    const b = readBands(spectrum, 44100, 2048);
+    expect(b.bass).toBe(1);
+    expect(b.treble).toBe(0);
+    expect(b.mid).toBe(0);
+  });
+
+  it('WAV получает верный заголовок и чередует каналы', () => {
+    const buf = encodeWav([new Float32Array([0, 1, -1]), new Float32Array([0.5, 0, 2])], 44100);
+    const v = new DataView(buf);
+    const tag = (o: number): string => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+    expect([tag(0), tag(8), tag(12), tag(36)]).toEqual(['RIFF', 'WAVE', 'fmt ', 'data']);
+    expect(buf.byteLength).toBe(44 + 3 * 2 * 2);
+    expect(v.getUint16(22, true)).toBe(2);
+    expect(v.getUint32(24, true)).toBe(44100);
+    expect(v.getInt16(44, true)).toBe(0);
+    expect(v.getInt16(46, true)).toBe(16384);
+    expect(v.getInt16(48, true)).toBe(32767);
+    // значения вне −1…1 обрезаются
+    expect(v.getInt16(54, true)).toBe(32767);
   });
 });

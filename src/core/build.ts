@@ -1,5 +1,5 @@
 import { polar, ringAngles } from './geom';
-import type { CircleConfig } from './config';
+import type { CircleConfig, LayerId } from './config';
 import type { Shape } from './ir';
 import { symbolPool } from '../glyphs/symbols';
 import { center } from '../layers/center';
@@ -38,22 +38,34 @@ export function buildRing(cfg: CircleConfig, R: number, weightMul = 1): Shape[] 
   return outerRing(makeCtx(cfg, weightMul), R);
 }
 
-/** Собирает геометрию круга из включённых слоёв. Порядок важен: поздние слои перекрывают ранние. */
-export function buildCircle(cfg: CircleConfig, weightMul = 1): Shape[] {
+export interface LayerShapes {
+  id: LayerId;
+  shapes: Shape[];
+}
+
+/** Геометрия по слоям в порядке отрисовки: поздние слои перекрывают ранние. */
+export function buildLayers(cfg: CircleConfig, weightMul = 1): LayerShapes[] {
   const L = cfg.layers;
   const ctx = makeCtx(cfg, weightMul);
-
-  const out: Shape[] = [];
-  if (L.rays.on) out.push(...rays(ctx));
-  if (L.rosette.on) out.push(...rosette(ctx));
-  if (L.petals.on) out.push(...petals(ctx));
-  if (L.polygram.on) out.push(...polygram(ctx));
-  if (L.outerRing.on) out.push(...outerRing(ctx));
-  if (L.innerRing.on) out.push(...innerRing(ctx));
-  if (L.polygram.on && L.edgeText.on) out.push(...edgeText(ctx));
-  if (L.spiral.on) out.push(...spiral(ctx));
-  if (L.nodes.on) out.push(...nodes(ctx));
-  if (L.center.on) out.push(...center(ctx));
-  if (L.outside.on) out.push(...outside(ctx));
+  const out: LayerShapes[] = [];
+  const add = (id: LayerId, on: boolean, make: (c: Ctx) => Shape[]): void => {
+    if (on) out.push({ id, shapes: make(ctx) });
+  };
+  add('rays', L.rays.on, rays);
+  add('rosette', L.rosette.on, rosette);
+  add('petals', L.petals.on, petals);
+  add('polygram', L.polygram.on, polygram);
+  add('outerRing', L.outerRing.on, outerRing);
+  add('innerRing', L.innerRing.on, innerRing);
+  add('edgeText', L.polygram.on && L.edgeText.on, edgeText);
+  add('spiral', L.spiral.on, spiral);
+  add('nodes', L.nodes.on, nodes);
+  add('center', L.center.on, center);
+  add('outside', L.outside.on, outside);
   return out;
+}
+
+/** Собирает геометрию круга из включённых слоёв одним списком. */
+export function buildCircle(cfg: CircleConfig, weightMul = 1): Shape[] {
+  return buildLayers(cfg, weightMul).flatMap((l) => l.shapes);
 }
