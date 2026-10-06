@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildCircle } from '../src/core/build';
 import { defaultConfig, normalizeConfig, randomizeConfig, type Locks } from '../src/core/config';
+import { mutateConfig, rotateHue } from '../src/core/evolve';
 import { cyrb53, makeRng, phraseToSeed } from '../src/core/rng';
 import { canon } from '../src/glyphs/text';
 import { circleSvg } from '../src/render/compose';
@@ -100,5 +101,90 @@ describe('система', () => {
       expect(a).toBe(systemSvg(JSON.parse(JSON.stringify(sys)), 's').svg);
       expect(a).not.toMatch(/NaN|undefined|Infinity/);
     }
+  });
+});
+
+describe('эволюция', () => {
+  const diff = (a: unknown, b: unknown): number => {
+    // число различающихся листьев двух конфигов
+    if (a === null || typeof a !== 'object') return a === b ? 0 : 1;
+    let n = 0;
+    for (const k of Object.keys(a as object)) n += diff((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]);
+    return n;
+  };
+
+  it('потомок воспроизводим и всегда отличается от родителя', () => {
+    const parent = fromSeed('evo');
+    for (const s of [0, 0.3, 1]) {
+      const a = mutateConfig(parent, s, makeRng('m/1'), OPEN);
+      const b = mutateConfig(parent, s, makeRng('m/1'), OPEN);
+      expect(a).toEqual(b);
+      expect(a.changes.length).toBeGreaterThan(0);
+      expect(a.config).not.toEqual(parent);
+    }
+  });
+
+  it('родитель не изменяется', () => {
+    const parent = fromSeed('evo');
+    const snapshot = JSON.stringify(parent);
+    mutateConfig(parent, 1, makeRng('m/2'), OPEN);
+    expect(JSON.stringify(parent)).toBe(snapshot);
+  });
+
+  it('сила изменений управляет размахом мутаций', () => {
+    const avg = (s: number): number => {
+      let total = 0;
+      for (let i = 0; i < 80; i++) {
+        const parent = fromSeed(`p${i % 8}`);
+        total += diff(parent, mutateConfig(parent, s, makeRng(`m/${i}`), OPEN).config);
+      }
+      return total / 80;
+    };
+    const weak = avg(0);
+    const mid = avg(0.5);
+    const strong = avg(1);
+    expect(weak).toBeLessThan(mid);
+    expect(mid).toBeLessThan(strong);
+    expect(weak).toBeLessThanOrEqual(2);
+  });
+
+  it('при слабой силе слои не включаются и не выключаются', () => {
+    for (let i = 0; i < 60; i++) {
+      const parent = fromSeed(`q${i}`);
+      const child = mutateConfig(parent, 0, makeRng(`m/${i}`), OPEN).config;
+      for (const k of Object.keys(parent.layers) as (keyof typeof parent.layers)[]) {
+        expect(child.layers[k].on).toBe(parent.layers[k].on);
+      }
+    }
+  });
+
+  it('замки уважаются, а полностью запертый круг не меняется', () => {
+    const parent = fromSeed('locked');
+    for (let i = 0; i < 40; i++) {
+      const c = mutateConfig(parent, 1, makeRng(`m/${i}`), { layers: true, script: true, style: false, color: false }).config;
+      expect(c.layers).toEqual(parent.layers);
+      expect(c.mirror).toBe(parent.mirror);
+      expect(c.seed).toBe(parent.seed);
+      expect(c.script).toEqual(parent.script);
+    }
+    const frozen = mutateConfig(parent, 1, makeRng('m/x'), { layers: true, script: true, style: true, color: true });
+    expect(frozen.changes).toEqual([]);
+    expect(frozen.config).toEqual(parent);
+  });
+
+  it('длинная цепочка поколений остаётся рисуемой', () => {
+    let cfg = fromSeed('chain');
+    for (let g = 0; g < 150; g++) {
+      cfg = mutateConfig(cfg, 0.2 + (g % 5) * 0.2, makeRng(`g/${g}`), OPEN).config;
+      expect(circleSvg(cfg, 'c')).not.toMatch(/NaN|undefined|Infinity/);
+    }
+  });
+
+  it('поворот оттенка сохраняет формат цвета и обратим с точностью до округления', () => {
+    expect(rotateHue('#ff5b4a', 0)).toBe('#ff5b4a');
+    expect(rotateHue('#ff5b4a', 120)).toMatch(/^#[0-9a-f]{6}$/);
+    const back = rotateHue(rotateHue('#3366cc', 90), -90);
+    const ch = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    ch(back).forEach((v, i) => expect(Math.abs(v - ch('#3366cc')[i])).toBeLessThanOrEqual(2));
   });
 });

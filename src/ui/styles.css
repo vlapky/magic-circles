@@ -35,6 +35,8 @@ body {
 #app {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
+  /* колонка не шире экрана, даже если содержимое не сжимается */
+  grid-template-columns: minmax(0, 1fr);
   height: 100%;
 }
 
@@ -191,6 +193,7 @@ body {
 .section-body {
   padding: 2px 18px 18px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
 }
 
@@ -400,7 +403,8 @@ input[type='color'] {
 }
 
 .layer-title {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .layer:not(.on) .layer-title {
@@ -424,6 +428,7 @@ input[type='color'] {
 
 .layer-body {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 11px;
   padding: 4px 12px 13px 32px;
 }
@@ -554,6 +559,129 @@ legend {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--raise);
+}
+
+/* ---------- эволюция */
+
+.evo-wrap {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  display: grid;
+  place-items: center;
+  container-type: size;
+}
+
+.evo-grid {
+  width: min(100cqw, 100cqh);
+  height: min(100cqw, 100cqh);
+  display: grid;
+  grid-template: repeat(3, minmax(0, 1fr)) / repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.evo-cell {
+  appearance: none;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.evo-cell:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+button.evo-cell:hover:not(:disabled),
+button.evo-cell:focus-visible {
+  border-color: var(--accent);
+}
+
+.evo-parent {
+  cursor: default;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.evo-art {
+  position: absolute;
+  inset: 0 0 22px;
+}
+
+.evo-art svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.evo-what {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 22px;
+  padding: 3px 8px;
+  background: rgb(8 9 12 / 0.82);
+  color: var(--muted);
+  font: 11.5px/16px var(--sans);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.evo-parent .evo-what {
+  color: var(--accent);
+}
+
+.section.static > h2 {
+  margin: 0;
+  padding: 13px 18px;
+  font: 500 15px/1.2 var(--serif);
+  letter-spacing: 0.02em;
+}
+
+.note.lead {
+  margin: 0;
+  color: var(--text);
+}
+
+.evo-line {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.evo-step {
+  appearance: none;
+  display: block;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.evo-step:hover {
+  border-color: var(--accent);
+}
+
+.evo-step svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* ---------- библиотека */
@@ -691,6 +819,17 @@ legend {
     padding: 10px 16px 0;
   }
 
+  /* четыре вкладки не помещаются на телефоне с обычными отступами */
+  .tabs {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .tab {
+    padding: 12px 9px 10px;
+    white-space: nowrap;
+  }
+
   .work {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -707,6 +846,16 @@ legend {
     flex: none;
     height: min(100vw, 52vh);
     padding: 8px;
+  }
+
+  .evo-wrap {
+    flex: none;
+    height: min(100vw, 58vh);
+    padding: 8px;
+  }
+
+  .evo-grid {
+    gap: 4px;
   }
 
   .panel {

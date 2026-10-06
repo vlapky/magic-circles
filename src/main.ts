@@ -1,12 +1,14 @@
 import './ui/styles.css';
 import { mountCircleTab } from './ui/circleTab';
 import { h } from './ui/dom';
+import { mountEvolveTab } from './ui/evolveTab';
 import { mountLibraryTab } from './ui/libraryTab';
 import { app, persist, type Tab } from './ui/state';
 import { mountSystemTab } from './ui/systemTab';
 
 const TABS: [Tab, string][] = [
   ['circle', 'Круг'],
+  ['evolve', 'Эволюция'],
   ['system', 'Система'],
   ['library', 'Библиотека'],
 ];
@@ -25,6 +27,7 @@ function go(tab: Tab): void {
   );
   work.className = `work ${tab}`;
   if (tab === 'circle') mountCircleTab(work);
+  else if (tab === 'evolve') mountEvolveTab(work, go);
   else if (tab === 'system') mountSystemTab(work, () => go('circle'));
   else mountLibraryTab(work, go);
 }
